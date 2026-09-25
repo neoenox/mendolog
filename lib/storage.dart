@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'domain.dart';
+import 'storage_policy.dart';
 
 typedef MendologWriter = Future<bool> Function(String key, String value);
 
@@ -13,11 +14,16 @@ class MendologStore {
 
   final SharedPreferences preferences;
   final MendologWriter _writer;
+  final int maxPayloadBytes;
 
   String? _protectedPayload;
 
-  MendologStore(this.preferences, {MendologWriter? writer})
-    : _writer = writer ?? preferences.setString;
+  MendologStore(
+    this.preferences, {
+    MendologWriter? writer,
+    this.maxPayloadBytes = MendologStoragePolicy.maxPayloadBytes,
+  }) : assert(maxPayloadBytes > 0),
+       _writer = writer ?? preferences.setString;
 
   bool get recoveryRequired => _protectedPayload != null;
   String? get protectedPayload => _protectedPayload;
@@ -84,6 +90,14 @@ class MendologStore {
       'schemaVersion': _currentSchemaVersion,
       'data': jsonDecode(data.encode()),
     });
+    final payloadBytes = MendologStoragePolicy.encodedBytes(payload);
+    if (payloadBytes > maxPayloadBytes) {
+      throw StateError(
+        '保存データが安全上限を超えるため、新しい内容を保存していません。'
+        '現在の記録は保持されています。データを書き出して保管してください。',
+      );
+    }
+
     final saved = await _writer(_key, payload);
     if (!saved) {
       throw StateError('めんどログの保存に失敗しました。');

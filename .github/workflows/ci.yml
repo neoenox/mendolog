@@ -20,6 +20,8 @@ jobs:
         run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze
       - run: flutter test
+      - name: Storage capacity benchmark
+        run: dart run tool/storage_benchmark.dart
       - run: flutter build apk --debug
         name: Debug APK smoke build
 
