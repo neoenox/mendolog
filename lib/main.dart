@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'domain.dart';
 import 'ads.dart';
 import 'export.dart';
+import 'mutation_controller.dart';
 import 'storage.dart';
 
 Future<void> main() async {
@@ -42,17 +43,19 @@ class MendologHome extends StatefulWidget {
 }
 
 class _MendologHomeState extends State<MendologHome> {
-  late MendologData data;
+  late final MendologMutationController _mutations;
+  MendologData get data => _mutations.data;
 
   @override
   void initState() {
     super.initState();
     // Load before the first build so recovery state can drive the UI.
-    data = widget.store.load();
+    _mutations = MendologMutationController(
+      MendologStorePersistence(widget.store),
+    );
   }
 
   int tab = 0;
-  Future<void> _mutationQueue = Future<void>.value();
   final List<TextEditingController> _ephemeralControllers = [];
 
   TextEditingController _newEphemeralController() {
@@ -69,56 +72,31 @@ class _MendologHomeState extends State<MendologHome> {
     super.dispose();
   }
 
-  Future<bool> _commitMutation(
-    MendologData Function(MendologData current) buildNext,
-  ) {
-    final result = Completer<bool>();
-    _mutationQueue = _mutationQueue.then((_) async {
-      final next = buildNext(data);
-      try {
-        await widget.store.save(next);
-        if (!mounted) {
-          result.complete(false);
-          return;
-        }
-        setState(() => data = next);
-        result.complete(true);
-      } on StateError catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(error.message)));
-        }
-        result.complete(false);
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('保存できませんでした。内容は変更されていません。もう一度お試しください。'),
-            ),
-          );
-        }
-        result.complete(false);
+  Future<bool> _runMutation(Future<bool> Function() mutation) async {
+    try {
+      final changed = await mutation();
+      if (!mounted) return false;
+      if (changed) setState(() {});
+      return changed;
+    } on StateError catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
-    });
-    return result.future;
+      return false;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('保存できませんでした。内容は変更されていません。もう一度お試しください。')),
+        );
+      }
+      return false;
+    }
   }
 
   Future<void> _record(FrictionCategory category, String target) async {
-    final clean = canonicalizeTarget(target);
-    if (clean.isEmpty) return;
-    final event = FrictionEvent(
-      id: generateEventId(),
-      category: category,
-      target: clean,
-      occurredAt: DateTime.now().toUtc(),
-    );
-    await _commitMutation(
-      (current) => MendologData(
-        events: [...current.events, event],
-        improvements: current.improvements,
-      ),
-    );
+    await _runMutation(() => _mutations.record(category, target));
   }
 
   Future<void> _openRecorder(FrictionCategory category) async {
@@ -219,32 +197,14 @@ class _MendologHomeState extends State<MendologHome> {
       ),
     );
     if (!mounted || details == null) return;
-    final improvement = Improvement(
-      category: suggestion.category,
-      canonicalTarget: suggestion.canonicalTarget,
-      title: suggestion.title,
-      details: details,
-      startedAt: DateTime.now().toUtc(),
-    );
-    await _commitMutation(
-      (current) => MendologData(
-        events: current.events,
-        improvements: [...current.improvements, improvement],
-      ),
-    );
+    await _runMutation(() => _mutations.startImprovement(suggestion, details));
   }
 
   Future<void> _finishImprovement(
     Improvement improvement,
     ImprovementStatus status,
   ) async {
-    await _commitMutation((current) {
-      final index = current.improvements.indexOf(improvement);
-      if (index < 0 || !current.improvements[index].isActive) return current;
-      final updated = [...current.improvements];
-      updated[index] = improvement.finish(status, DateTime.now().toUtc());
-      return MendologData(events: current.events, improvements: updated);
-    });
+    await _runMutation(() => _mutations.finishImprovement(improvement, status));
   }
 
   Future<void> _exportData() async {
@@ -450,14 +410,7 @@ class _MendologHomeState extends State<MendologHome> {
       ),
     );
     if (confirmed != true) return false;
-    return _commitMutation((current) {
-      final index = current.events.indexWhere((item) => item.id == event.id);
-      if (index < 0) return current;
-      return MendologData(
-        events: [...current.events]..removeAt(index),
-        improvements: current.improvements,
-      );
-    });
+    return _runMutation(() => _mutations.deleteEvent(event));
   }
 
   Widget _insights() {
