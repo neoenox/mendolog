@@ -148,4 +148,85 @@ void main() {
     await controller.deleteEvent(event);
     expect(controller.data.events, isEmpty);
   });
+
+  test('finalized improvement stores a stable result snapshot', () async {
+    final startedAt = now.subtract(const Duration(days: 10));
+    final improvement = Improvement(
+      category: FrictionCategory.searched,
+      canonicalTarget: '鍵',
+      title: '定位置を決める',
+      startedAt: startedAt,
+    );
+    final persistence = FakePersistence(
+      initial: MendologData(
+        events: [
+          FrictionEvent(
+            id: 'before',
+            category: FrictionCategory.searched,
+            target: '鍵',
+            occurredAt: startedAt.subtract(const Duration(days: 1)),
+          ),
+          FrictionEvent(
+            id: 'after',
+            category: FrictionCategory.searched,
+            target: '鍵',
+            occurredAt: startedAt.add(const Duration(days: 1)),
+          ),
+        ],
+        improvements: [improvement],
+      ),
+    );
+    final controller = MendologMutationController(
+      persistence,
+      now: () => now,
+      generateId: () => 'unused',
+    );
+
+    await controller.finishImprovement(
+      improvement,
+      ImprovementStatus.completed,
+    );
+
+    final finished = controller.data.improvements.single;
+    expect(finished.resultSnapshot?.before, 1);
+    expect(finished.resultSnapshot?.after, 1);
+
+    final withoutHistory = MendologData(improvements: [finished]);
+    final comparison = withoutHistory.comparison(
+      finished,
+      now.add(const Duration(days: 30)),
+    );
+    expect(comparison.before, 1);
+    expect(comparison.after, 1);
+    expect(
+      comparison.observedAfter,
+      finished.resultSnapshot!.observedAfter,
+    );
+  });
+
+  test('result snapshot survives local JSON serialization', () {
+    const snapshot = ImprovementResultSnapshot(
+      before: 4,
+      after: 1,
+      observedAfter: Duration(days: 30),
+    );
+    final improvement = Improvement(
+      category: FrictionCategory.forgot,
+      canonicalTarget: '財布',
+      title: '置き場所を決める',
+      startedAt: now.subtract(const Duration(days: 30)),
+      status: ImprovementStatus.completed,
+      endedAt: now,
+      resultSnapshot: snapshot,
+    );
+
+    final restored = MendologData.decode(
+      MendologData(improvements: [improvement]).encode(),
+    ).improvements.single;
+
+    expect(restored.resultSnapshot?.before, 4);
+    expect(restored.resultSnapshot?.after, 1);
+    expect(restored.resultSnapshot?.observedAfter, const Duration(days: 30));
+  });
+
 }
