@@ -132,11 +132,8 @@ class ImprovementResultSnapshot {
   final int after;
   final Duration observedAfter;
 
-  Comparison toComparison() => Comparison(
-    before: before,
-    after: after,
-    observedAfter: observedAfter,
-  );
+  Comparison toComparison() =>
+      Comparison(before: before, after: after, observedAfter: observedAfter);
 
   Map<String, dynamic> toJson() => {
     'before': before,
