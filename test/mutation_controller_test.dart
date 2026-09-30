@@ -148,4 +148,61 @@ void main() {
     await controller.deleteEvent(event);
     expect(controller.data.events, isEmpty);
   });
+
+  test('finalized comparison survives deletion of source events', () async {
+    final startedAt = now.subtract(const Duration(days: 10));
+    final before = FrictionEvent(
+      id: 'before',
+      category: FrictionCategory.waited,
+      target: 'レジ',
+      occurredAt: startedAt.subtract(const Duration(days: 1)),
+    );
+    final after = FrictionEvent(
+      id: 'after',
+      category: FrictionCategory.waited,
+      target: 'レジ',
+      occurredAt: startedAt.add(const Duration(days: 1)),
+    );
+    final improvement = Improvement(
+      category: FrictionCategory.waited,
+      canonicalTarget: 'レジ',
+      title: '時間帯を変える',
+      startedAt: startedAt,
+    );
+    final persistence = FakePersistence(
+      initial: MendologData(
+        events: [before, after],
+        improvements: [improvement],
+      ),
+    );
+    final controller = MendologMutationController(
+      persistence,
+      now: () => now,
+      generateId: () => 'unused',
+    );
+
+    await controller.finishImprovement(
+      improvement,
+      ImprovementStatus.completed,
+    );
+    final finalized = controller.data.improvements.single;
+    final beforeDeletion = controller.data.comparison(finalized, now);
+    expect(beforeDeletion.before, 1);
+    expect(beforeDeletion.after, 1);
+    expect(finalized.finalComparison, isNotNull);
+
+    await controller.deleteEvent(after);
+    expect(controller.data.events.map((event) => event.id), ['before']);
+
+    final afterDeletion = controller.data.comparison(
+      controller.data.improvements.single,
+      now.add(const Duration(days: 1)),
+    );
+    expect(afterDeletion.before, 1);
+    expect(afterDeletion.after, 1);
+    expect(
+      afterDeletion.observedAfter,
+      beforeDeletion.observedAfter,
+    );
+  });
 }
