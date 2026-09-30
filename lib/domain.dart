@@ -121,6 +121,39 @@ ImprovementStatus improvementStatusFromJson(String? value) =>
       orElse: () => ImprovementStatus.active,
     );
 
+class ImprovementResultSnapshot {
+  const ImprovementResultSnapshot({
+    required this.before,
+    required this.after,
+    required this.observedAfter,
+  });
+
+  final int before;
+  final int after;
+  final Duration observedAfter;
+
+  Comparison toComparison() => Comparison(
+    before: before,
+    after: after,
+    observedAfter: observedAfter,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'before': before,
+    'after': after,
+    'observedAfterMicros': observedAfter.inMicroseconds,
+  };
+
+  factory ImprovementResultSnapshot.fromJson(Map<String, dynamic> json) =>
+      ImprovementResultSnapshot(
+        before: json['before'] as int,
+        after: json['after'] as int,
+        observedAfter: Duration(
+          microseconds: json['observedAfterMicros'] as int,
+        ),
+      );
+}
+
 class Improvement {
   const Improvement({
     required this.category,
@@ -130,6 +163,7 @@ class Improvement {
     required this.startedAt,
     this.status = ImprovementStatus.active,
     this.endedAt,
+    this.resultSnapshot,
   });
 
   final FrictionCategory category;
@@ -139,11 +173,16 @@ class Improvement {
   final DateTime startedAt;
   final ImprovementStatus status;
   final DateTime? endedAt;
+  final ImprovementResultSnapshot? resultSnapshot;
 
   String get key => '${category.name}|$canonicalTarget';
   bool get isActive => status == ImprovementStatus.active;
 
-  Improvement finish(ImprovementStatus nextStatus, DateTime at) {
+  Improvement finish(
+    ImprovementStatus nextStatus,
+    DateTime at, {
+    ImprovementResultSnapshot? resultSnapshot,
+  }) {
     if (nextStatus == ImprovementStatus.active) {
       throw ArgumentError('An active improvement cannot finish as active');
     }
@@ -155,6 +194,7 @@ class Improvement {
       startedAt: startedAt,
       status: nextStatus,
       endedAt: at.toUtc(),
+      resultSnapshot: resultSnapshot ?? this.resultSnapshot,
     );
   }
 
@@ -166,6 +206,7 @@ class Improvement {
     'startedAt': startedAt.toIso8601String(),
     'status': status.name,
     if (endedAt != null) 'endedAt': endedAt!.toIso8601String(),
+    if (resultSnapshot != null) 'resultSnapshot': resultSnapshot!.toJson(),
   };
 
   factory Improvement.fromJson(Map<String, dynamic> json) => Improvement(
@@ -177,6 +218,11 @@ class Improvement {
     status: improvementStatusFromJson(json['status'] as String?),
     endedAt: json['endedAt'] is String
         ? parseTimestamp(json['endedAt'] as String)
+        : null,
+    resultSnapshot: json['resultSnapshot'] is Map<String, dynamic>
+        ? ImprovementResultSnapshot.fromJson(
+            json['resultSnapshot'] as Map<String, dynamic>,
+          )
         : null,
   );
 }
@@ -288,6 +334,9 @@ class MendologData {
   }
 
   Comparison comparison(Improvement improvement, DateTime now) {
+    final snapshot = improvement.resultSnapshot;
+    if (snapshot != null) return snapshot.toComparison();
+
     final beforeStart = improvement.startedAt.subtract(_recentWindow);
     final elapsed = now.difference(improvement.startedAt);
     final observedAfter = elapsed.isNegative
