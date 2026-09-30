@@ -198,10 +198,7 @@ void main() {
     );
     expect(comparison.before, 1);
     expect(comparison.after, 1);
-    expect(
-      comparison.observedAfter,
-      finished.resultSnapshot!.observedAfter,
-    );
+    expect(comparison.observedAfter, finished.resultSnapshot!.observedAfter);
   });
 
   test('result snapshot survives local JSON serialization', () {
@@ -228,5 +225,4 @@ void main() {
     expect(restored.resultSnapshot?.after, 1);
     expect(restored.resultSnapshot?.observedAfter, const Duration(days: 30));
   });
-
 }
