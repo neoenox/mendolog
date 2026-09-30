@@ -130,6 +130,7 @@ class Improvement {
     required this.startedAt,
     this.status = ImprovementStatus.active,
     this.endedAt,
+    this.finalComparison,
   });
 
   final FrictionCategory category;
@@ -139,11 +140,16 @@ class Improvement {
   final DateTime startedAt;
   final ImprovementStatus status;
   final DateTime? endedAt;
+  final Comparison? finalComparison;
 
   String get key => '${category.name}|$canonicalTarget';
   bool get isActive => status == ImprovementStatus.active;
 
-  Improvement finish(ImprovementStatus nextStatus, DateTime at) {
+  Improvement finish(
+    ImprovementStatus nextStatus,
+    DateTime at, {
+    Comparison? finalComparison,
+  }) {
     if (nextStatus == ImprovementStatus.active) {
       throw ArgumentError('An active improvement cannot finish as active');
     }
@@ -155,6 +161,7 @@ class Improvement {
       startedAt: startedAt,
       status: nextStatus,
       endedAt: at.toUtc(),
+      finalComparison: finalComparison ?? this.finalComparison,
     );
   }
 
@@ -166,6 +173,8 @@ class Improvement {
     'startedAt': startedAt.toIso8601String(),
     'status': status.name,
     if (endedAt != null) 'endedAt': endedAt!.toIso8601String(),
+    if (finalComparison != null)
+      'finalComparison': finalComparison!.toJson(),
   };
 
   factory Improvement.fromJson(Map<String, dynamic> json) => Improvement(
@@ -177,6 +186,11 @@ class Improvement {
     status: improvementStatusFromJson(json['status'] as String?),
     endedAt: json['endedAt'] is String
         ? parseTimestamp(json['endedAt'] as String)
+        : null,
+    finalComparison: json['finalComparison'] is Map<String, dynamic>
+        ? Comparison.fromJson(
+            json['finalComparison'] as Map<String, dynamic>,
+          )
         : null,
   );
 }
@@ -208,6 +222,20 @@ class Comparison {
 
   bool get isComplete => observedAfter >= const Duration(days: 30);
   int get observedAfterDays => observedAfter.inDays;
+
+  Map<String, dynamic> toJson() => {
+    'before': before,
+    'after': after,
+    'observedAfterMicroseconds': observedAfter.inMicroseconds,
+  };
+
+  factory Comparison.fromJson(Map<String, dynamic> json) => Comparison(
+    before: json['before'] as int,
+    after: json['after'] as int,
+    observedAfter: Duration(
+      microseconds: json['observedAfterMicroseconds'] as int,
+    ),
+  );
 }
 
 class MendologData {
@@ -288,6 +316,9 @@ class MendologData {
   }
 
   Comparison comparison(Improvement improvement, DateTime now) {
+    final frozen = improvement.finalComparison;
+    if (frozen != null) return frozen;
+
     final beforeStart = improvement.startedAt.subtract(_recentWindow);
     final elapsed = now.difference(improvement.startedAt);
     final observedAfter = elapsed.isNegative
