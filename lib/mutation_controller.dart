@@ -88,8 +88,15 @@ class MendologMutationController {
   ) => _commit((current) {
     final index = current.improvements.indexOf(improvement);
     if (index < 0 || !current.improvements[index].isActive) return current;
+
+    final endedAt = _now().toUtc();
+    final finalComparison = current.comparison(improvement, endedAt);
     final updated = [...current.improvements];
-    updated[index] = improvement.finish(status, _now().toUtc());
+    updated[index] = improvement.finish(
+      status,
+      endedAt,
+      finalComparison: finalComparison,
+    );
     return MendologData(events: current.events, improvements: updated);
   });
 
